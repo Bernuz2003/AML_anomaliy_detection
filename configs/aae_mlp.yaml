@@ -1,0 +1,52 @@
+seed: 42
+
+data:
+  path: null
+  format: auto
+  run_col: run_id
+  time_col: t
+  label_col: label
+  split_col: null
+  anomaly_col: anomaly
+  action_col: action
+  kuka_run_strategy: action_segments
+  kuka_fixed_run_length: 512
+  normal_label: 0
+  feature_cols: null
+  train_ratio: 0.6
+  val_ratio: 0.2
+  test_ratio: 0.2
+  stratify_by_label: true
+
+preprocessing:
+  scaler: standard
+  fit_only_normal: true
+  missing_strategy: interpolate
+
+windowing:
+  window_length: 64
+  stride: 16
+  anomaly_fraction: 0.10
+
+model:
+  type: aae_mlp
+  hidden_dims: [256, 128]
+  latent_dim: 16
+  dropout: 0.05
+  discriminator_hidden_dims: [128, 64]
+  lambda_adv: 0.1
+
+training:
+  epochs: 30
+  batch_size: 128
+  lr: 0.001
+  lr_discriminator: 0.001
+  lr_adversarial: 0.0005
+  weight_decay: 0.00001
+  loss: mse
+  patience: 8
+  device: auto
+
+evaluation:
+  threshold: best_f1
+  fallback_percentile: 99.0
