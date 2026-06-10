@@ -1,10 +1,67 @@
-# AML_anomaliy_detection
+# AM01 Kuka AAE Anomaly Detection
 
-## Colab Notebooks
+Minimal repository for the AM01 Advanced Machine Learning in Applications project.
 
-- `notebooks/AM01_colab_master.ipynb`: esegue test, audit, preprocessing, training e generazione figure.
-- `notebooks/AM01_results_analysis_colab.ipynb`: legge `MyDrive/AM01/results` e genera tabelle, grafici, failure cases, training history e insight automatici.
-- `notebooks/AM01_phase2_colab.ipynb`: esegue gli esperimenti incrementali Phase 2 in `MyDrive/AM01/results/phase2`.
-- `notebooks/AM01_phase3_aae_latent_diagnostics_colab.ipynb`: esegue diagnostiche AAE-specifiche su latent space, discriminator score, action e feature in `MyDrive/AM01/results/phase3_aae_diagnostics`.
+The project evaluates anomaly detection on Kuka robot time series, with a central
+comparison between a reconstruction-based Autoencoder and an Adversarial
+Autoencoder.
 
-Guida operativa: `docs/colab_execution.md`.
+## Official Entry Point
+
+Run on Colab:
+
+```text
+notebooks/AM01_official_experiments_colab.ipynb
+```
+
+Optional appendix:
+
+```text
+notebooks/AM01_appendix_extended_ablation_colab.ipynb
+```
+
+Expected input on Google Drive:
+
+```text
+MyDrive/AM01/data/KukaVelocityDataset/
+├── KukaColumnNames.npy
+├── KukaNormal.npy
+└── KukaSlow.npy
+```
+
+Official outputs:
+
+```text
+MyDrive/AM01/results/official/
+├── config/
+├── tables/
+├── figures/
+├── extended_scores/
+├── runs/
+└── summary.md
+```
+
+## Repository Structure
+
+```text
+configs/      model configurations
+docs/         architecture and official protocol
+notebooks/    official Colab notebooks
+scripts/      small CLI entry points
+src/am01/     reusable project package
+data/         dataset placement notes
+```
+
+## Main Scripts
+
+```bash
+python scripts/audit_data.py --config configs/ae_mlp.yaml --data data/raw/KukaVelocityDataset --output results/data_audit
+python scripts/prepare_data.py --config configs/ae_mlp.yaml --data data/raw/KukaVelocityDataset --output results/preprocessed
+python scripts/run_experiments.py --configs configs/ae_mlp.yaml configs/aae_mlp.yaml --data data/raw/KukaVelocityDataset --output results/runs
+python scripts/evaluate.py --run-dir results/runs/ae_mlp_seed42
+```
+
+## Documentation
+
+- `docs/ARCHITECTURE.md`
+- `docs/OFFICIAL_PROTOCOL.md`

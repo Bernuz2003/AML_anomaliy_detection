@@ -35,11 +35,3 @@ def score_autoencoder(
     if label_arr is not None and np.all(label_arr < 0):
         label_arr = None
     return score_arr, label_arr, np.asarray(run_ids), np.asarray(starts, dtype=np.int64)
-
-
-def normalize_scores(scores: np.ndarray) -> np.ndarray:
-    scores = np.asarray(scores, dtype=np.float64)
-    lo, hi = np.nanmin(scores), np.nanmax(scores)
-    if not np.isfinite(lo) or not np.isfinite(hi) or np.isclose(lo, hi):
-        return np.zeros_like(scores, dtype=np.float64)
-    return (scores - lo) / (hi - lo)

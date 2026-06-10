@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from copy import deepcopy
 import itertools
+import json
 import re
 import sys
 from pathlib import Path
@@ -30,6 +31,11 @@ def _set_if_not_none(mapping: dict[str, Any], key: str, value: Any) -> None:
         mapping[key] = value
 
 
+def _load_json(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a batch of AM01 experiments.")
     parser.add_argument("--configs", nargs="+", required=True, help="One or more YAML config files.")
@@ -42,6 +48,7 @@ def main() -> None:
     parser.add_argument("--scalers", nargs="*", choices=["standard", "robust", "minmax"], default=None)
     parser.add_argument("--losses", nargs="*", choices=["mse", "mae", "huber"], default=None)
     parser.add_argument("--threshold-methods", nargs="*", choices=["best_f1", "percentile", "normal_percentile"], default=None)
+    parser.add_argument("--skip-existing", action="store_true", help="Reuse runs that already contain metrics.json.")
     parser.add_argument("--summary-name", default="experiment_summary.csv")
     args = parser.parse_args()
 
@@ -100,8 +107,12 @@ def main() -> None:
             run_name = "_".join(_slug(part) for part in run_parts)
             run_dir = output_root / run_name
 
-            print(f"Running {run_name}...")
-            result = run_experiment(cfg, data_path=args.data, output_dir=run_dir)
+            if args.skip_existing and (run_dir / "metrics.json").exists():
+                print(f"Skipping existing {run_name}...")
+                result = _load_json(run_dir / "metrics.json")
+            else:
+                print(f"Running {run_name}...")
+                result = run_experiment(cfg, data_path=args.data, output_dir=run_dir)
             row = {
                 "run_name": run_name,
                 "config": str(config_path),
@@ -115,6 +126,8 @@ def main() -> None:
                 "threshold_method": cfg.get("evaluation", {}).get("threshold"),
                 "threshold": result["threshold"],
             }
+            for key, value in result.get("validation_metrics", {}).items():
+                row[f"val_{key}"] = value
             for key, value in result.get("test_metrics", {}).items():
                 row[f"test_{key}"] = value
             rows.append(row)
