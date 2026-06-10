@@ -32,7 +32,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate saved AM01 anomaly scores.")
     parser.add_argument("--run-dir", required=True, help="Directory containing scores_val.csv and scores_test.csv.")
     parser.add_argument("--threshold", type=float, default=None, help="Optional fixed threshold.")
-    parser.add_argument("--method", default="best_f1", choices=["best_f1", "percentile"])
+    parser.add_argument("--method", default="best_f1", choices=["best_f1", "percentile", "normal_percentile"])
     parser.add_argument("--fallback-percentile", type=float, default=99.0)
     parser.add_argument("--output", default=None, help="Metrics JSON path. Defaults to <run-dir>/metrics.json.")
     args = parser.parse_args()

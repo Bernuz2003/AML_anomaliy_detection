@@ -29,7 +29,16 @@ def select_threshold(
     scores = np.asarray(scores, dtype=float)
     if scores.size == 0:
         raise ValueError("Cannot select a threshold from empty scores.")
-    if method == "percentile" or y_true is None or not _has_two_classes(np.asarray(y_true)):
+    if method == "percentile":
+        return float(np.percentile(scores, fallback_percentile))
+    if method == "normal_percentile":
+        if y_true is not None:
+            y_true = np.asarray(y_true).astype(int)
+            normal_scores = scores[y_true == 0]
+            if normal_scores.size > 0:
+                return float(np.percentile(normal_scores, fallback_percentile))
+        return float(np.percentile(scores, fallback_percentile))
+    if y_true is None or not _has_two_classes(np.asarray(y_true)):
         return float(np.percentile(scores, fallback_percentile))
     if method != "best_f1":
         raise ValueError(f"Unknown threshold method: {method}")

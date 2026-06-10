@@ -1,9 +1,36 @@
 from pathlib import Path
 
-import yaml
+import numpy as np
+import pandas as pd
 
-from am01.data.synthetic import save_synthetic_csv
 from am01.pipeline import run_experiment
+
+
+def _write_small_csv(path: Path, *, runs: int = 9, length: int = 96, seed: int = 3) -> None:
+    rng = np.random.default_rng(seed)
+    rows = []
+    anomaly_runs = set(range(runs // 3))
+    for run in range(runs):
+        run_id = f"run_{run:03d}"
+        is_anomaly_run = run in anomaly_runs
+        for t in range(length):
+            label = int(is_anomaly_run and length // 3 <= t < length // 2)
+            phase = 2 * np.pi * t / length
+            x = np.sin(phase) + 0.04 * rng.normal()
+            y = np.cos(phase) + 0.04 * rng.normal()
+            current = 0.5 + 0.1 * abs(y) + 0.03 * rng.normal()
+            if label:
+                x += 0.5
+                current += 0.8
+            rows.append({
+                "run_id": run_id,
+                "t": t,
+                "label": label,
+                "joint_pos": x,
+                "joint_vel": y,
+                "current": current,
+            })
+    pd.DataFrame(rows).to_csv(path, index=False)
 
 
 def _small_cfg(model_type: str):
@@ -36,8 +63,8 @@ def _small_cfg(model_type: str):
 
 
 def test_pipeline_runs_pca_and_ae(tmp_path: Path):
-    data_path = tmp_path / "synthetic.csv"
-    save_synthetic_csv(data_path, runs=9, length=96, joints=2, seed=3)
+    data_path = tmp_path / "small.csv"
+    _write_small_csv(data_path, runs=9, length=96, seed=3)
     for model_type in ["pca", "ae_mlp", "aae_mlp"]:
         result = run_experiment(_small_cfg(model_type), data_path=data_path, output_dir=tmp_path / model_type)
         assert "test_metrics" in result
@@ -46,8 +73,8 @@ def test_pipeline_runs_pca_and_ae(tmp_path: Path):
 
 
 def test_prepare_outputs_include_processed_splits(tmp_path: Path):
-    data_path = tmp_path / "synthetic.csv"
-    save_synthetic_csv(data_path, runs=9, length=96, joints=2, seed=11)
+    data_path = tmp_path / "small.csv"
+    _write_small_csv(data_path, runs=9, length=96, seed=11)
     result = run_experiment(_small_cfg("pca"), data_path=data_path, output_dir=tmp_path / "pca")
     assert "split_summary" in result
     for name in ["processed_train.npz", "processed_val.npz", "processed_test.npz"]:

@@ -11,7 +11,6 @@ From the repository root:
 pip install -r requirements.txt
 python -m compileall -q src scripts tests
 pytest -q
-python scripts/run_synthetic_smoke.py
 ```
 
 ## Real Dataset Checks

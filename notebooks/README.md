@@ -1,16 +1,18 @@
 # Notebooks
 
-The project uses a single Colab-first orchestration notebook:
+The project uses three Colab-first notebooks:
 
-- `AM01_colab_master.ipynb`
+- `AM01_colab_master.ipynb`: executes tests, audit, preprocessing, training and figure generation.
+- `AM01_results_analysis_colab.ipynb`: analyzes already generated results under `MyDrive/AM01/results`.
+- `AM01_phase2_colab.ipynb`: runs incremental Phase 2 experiments under `MyDrive/AM01/results/phase2`.
 
-Reusable logic stays in `src/` and `scripts/`. The notebook only installs the
-environment, calls repository scripts, writes outputs to Google Drive and displays
+Reusable logic stays in `src/` and `scripts/`. The notebooks install the environment
+when needed, call repository scripts, read/write Google Drive artifacts and display
 tables/figures for inspection.
 
 This replaces the earlier multi-notebook exploratory plan. The reason is practical:
-the project must remain reproducible on Colab, and a single master notebook avoids
-divergence between notebook code and the production pipeline.
+the project must remain reproducible on Colab, and the notebook code must not diverge
+from the production pipeline.
 
 Expected Drive layout:
 
@@ -21,7 +23,9 @@ MyDrive/AM01/
 │   └── processed/
 └── results/
     ├── data_audit/
+    ├── analysis/
     ├── figures/
     ├── runs/
-    └── tables/
+    ├── tables/
+    └── phase2/
 ```

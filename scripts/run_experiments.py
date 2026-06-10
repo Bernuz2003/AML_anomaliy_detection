@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import itertools
 import re
 import sys
@@ -38,6 +39,9 @@ def main() -> None:
     parser.add_argument("--window-lengths", nargs="*", type=int, default=None)
     parser.add_argument("--latent-dims", nargs="*", type=int, default=None)
     parser.add_argument("--lambda-advs", nargs="*", type=float, default=None)
+    parser.add_argument("--scalers", nargs="*", choices=["standard", "robust", "minmax"], default=None)
+    parser.add_argument("--losses", nargs="*", choices=["mse", "mae", "huber"], default=None)
+    parser.add_argument("--threshold-methods", nargs="*", choices=["best_f1", "percentile", "normal_percentile"], default=None)
     parser.add_argument("--summary-name", default="experiment_summary.csv")
     args = parser.parse_args()
 
@@ -52,21 +56,29 @@ def main() -> None:
         seeds = args.seeds if args.seeds else [int(base_cfg.get("seed", 42))]
         latent_dims = args.latent_dims if model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"} else None
         lambda_advs = args.lambda_advs if model_type == "aae_mlp" else None
+        losses = args.losses if model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"} else None
 
-        for seed, window_length, latent_dim, lambda_adv in itertools.product(
+        for seed, window_length, latent_dim, lambda_adv, scaler, loss, threshold_method in itertools.product(
             seeds,
             _optional(args.window_lengths),
             _optional(latent_dims),
             _optional(lambda_advs),
+            _optional(args.scalers),
+            _optional(losses),
+            _optional(args.threshold_methods),
         ):
-            cfg = {
-                **base_cfg,
-                "data": dict(base_cfg.get("data", {})),
-                "windowing": dict(base_cfg.get("windowing", {})),
-                "model": dict(base_cfg.get("model", {})),
-            }
+            cfg = deepcopy(base_cfg)
+            cfg.setdefault("data", {})
+            cfg.setdefault("preprocessing", {})
+            cfg.setdefault("windowing", {})
+            cfg.setdefault("model", {})
+            cfg.setdefault("training", {})
+            cfg.setdefault("evaluation", {})
             cfg["seed"] = seed
             _set_if_not_none(cfg["windowing"], "window_length", window_length)
+            _set_if_not_none(cfg["preprocessing"], "scaler", scaler)
+            _set_if_not_none(cfg["training"], "loss", loss)
+            _set_if_not_none(cfg["evaluation"], "threshold", threshold_method)
             if latent_dim is not None and model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"}:
                 cfg["model"]["latent_dim"] = latent_dim
             if lambda_adv is not None and model_type == "aae_mlp":
@@ -79,6 +91,12 @@ def main() -> None:
                 run_parts.append(f"z{latent_dim}")
             if lambda_adv is not None and model_type == "aae_mlp":
                 run_parts.append(f"lam{lambda_adv:g}")
+            if scaler is not None:
+                run_parts.append(f"scaler{scaler}")
+            if loss is not None and model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"}:
+                run_parts.append(f"loss{loss}")
+            if threshold_method is not None:
+                run_parts.append(f"thr{threshold_method}")
             run_name = "_".join(_slug(part) for part in run_parts)
             run_dir = output_root / run_name
 
@@ -92,6 +110,9 @@ def main() -> None:
                 "window_length": cfg.get("windowing", {}).get("window_length"),
                 "latent_dim": cfg.get("model", {}).get("latent_dim"),
                 "lambda_adv": cfg.get("model", {}).get("lambda_adv"),
+                "scaler": cfg.get("preprocessing", {}).get("scaler"),
+                "loss": cfg.get("training", {}).get("loss"),
+                "threshold_method": cfg.get("evaluation", {}).get("threshold"),
                 "threshold": result["threshold"],
             }
             for key, value in result.get("test_metrics", {}).items():

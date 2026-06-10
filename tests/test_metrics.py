@@ -10,6 +10,13 @@ def test_threshold_best_f1_is_between_score_values():
     assert scores.min() <= thr <= scores.max()
 
 
+def test_normal_percentile_threshold_uses_only_normal_scores():
+    y = np.array([0, 0, 1, 1])
+    scores = np.array([0.1, 0.2, 10.0, 20.0])
+    thr = select_threshold(y, scores, method="normal_percentile", fallback_percentile=100.0)
+    assert thr == 0.2
+
+
 def test_binary_and_event_metrics_detect_single_event():
     y = np.array([0, 1, 1, 0, 0])
     scores = np.array([0.1, 0.9, 0.8, 0.2, 0.1])
