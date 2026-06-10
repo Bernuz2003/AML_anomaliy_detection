@@ -1,10 +1,11 @@
 # Notebooks
 
-The project uses three Colab-first notebooks:
+The project uses four Colab-first notebooks:
 
 - `AM01_colab_master.ipynb`: executes tests, audit, preprocessing, training and figure generation.
 - `AM01_results_analysis_colab.ipynb`: analyzes already generated results under `MyDrive/AM01/results`.
 - `AM01_phase2_colab.ipynb`: runs incremental Phase 2 experiments under `MyDrive/AM01/results/phase2`.
+- `AM01_phase3_aae_latent_diagnostics_colab.ipynb`: analyzes AAE-specific latent/discriminator scores, action failures and feature reconstruction errors under `MyDrive/AM01/results/phase3_aae_diagnostics`.
 
 Reusable logic stays in `src/` and `scripts/`. The notebooks install the environment
 when needed, call repository scripts, read/write Google Drive artifacts and display
@@ -25,7 +26,8 @@ MyDrive/AM01/
     ├── data_audit/
     ├── analysis/
     ├── figures/
+    ├── phase2/
+    ├── phase3_aae_diagnostics/
     ├── runs/
-    ├── tables/
-    └── phase2/
+    └── tables/
 ```
