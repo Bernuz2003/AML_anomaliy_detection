@@ -398,6 +398,8 @@ def collect_run_metrics(runs_root: str | Path) -> pd.DataFrame:
             "stride": cfg.get("windowing", {}).get("stride"),
             "latent_dim": cfg.get("model", {}).get("latent_dim"),
             "lambda_adv": cfg.get("model", {}).get("lambda_adv"),
+            "warmup_epochs": cfg.get("training", {}).get("warmup_epochs", cfg.get("model", {}).get("warmup_epochs")),
+            "ramp_epochs": cfg.get("training", {}).get("ramp_epochs", cfg.get("model", {}).get("ramp_epochs")),
             "scaler": cfg.get("preprocessing", {}).get("scaler"),
             "loss": cfg.get("training", {}).get("loss"),
             "threshold": metrics.get("threshold"),

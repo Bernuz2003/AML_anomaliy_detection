@@ -45,6 +45,8 @@ def main() -> None:
     parser.add_argument("--window-lengths", nargs="*", type=int, default=None)
     parser.add_argument("--latent-dims", nargs="*", type=int, default=None)
     parser.add_argument("--lambda-advs", nargs="*", type=float, default=None)
+    parser.add_argument("--warmup-epochs", nargs="*", type=int, default=None)
+    parser.add_argument("--ramp-epochs", nargs="*", type=int, default=None)
     parser.add_argument("--scalers", nargs="*", choices=["standard", "robust", "minmax"], default=None)
     parser.add_argument("--losses", nargs="*", choices=["mse", "mae", "huber"], default=None)
     parser.add_argument("--threshold-methods", nargs="*", choices=["best_f1", "percentile", "normal_percentile"], default=None)
@@ -63,13 +65,17 @@ def main() -> None:
         seeds = args.seeds if args.seeds else [int(base_cfg.get("seed", 42))]
         latent_dims = args.latent_dims if model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"} else None
         lambda_advs = args.lambda_advs if model_type == "aae_mlp" else None
+        warmup_epochs = args.warmup_epochs if model_type == "aae_mlp" else None
+        ramp_epochs = args.ramp_epochs if model_type == "aae_mlp" else None
         losses = args.losses if model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"} else None
 
-        for seed, window_length, latent_dim, lambda_adv, scaler, loss, threshold_method in itertools.product(
+        for seed, window_length, latent_dim, lambda_adv, warmup_epoch, ramp_epoch, scaler, loss, threshold_method in itertools.product(
             seeds,
             _optional(args.window_lengths),
             _optional(latent_dims),
             _optional(lambda_advs),
+            _optional(warmup_epochs),
+            _optional(ramp_epochs),
             _optional(args.scalers),
             _optional(losses),
             _optional(args.threshold_methods),
@@ -86,6 +92,9 @@ def main() -> None:
             _set_if_not_none(cfg["preprocessing"], "scaler", scaler)
             _set_if_not_none(cfg["training"], "loss", loss)
             _set_if_not_none(cfg["evaluation"], "threshold", threshold_method)
+            if model_type == "aae_mlp":
+                _set_if_not_none(cfg["training"], "warmup_epochs", warmup_epoch)
+                _set_if_not_none(cfg["training"], "ramp_epochs", ramp_epoch)
             if latent_dim is not None and model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"}:
                 cfg["model"]["latent_dim"] = latent_dim
             if lambda_adv is not None and model_type == "aae_mlp":
@@ -98,6 +107,10 @@ def main() -> None:
                 run_parts.append(f"z{latent_dim}")
             if lambda_adv is not None and model_type == "aae_mlp":
                 run_parts.append(f"lam{lambda_adv:g}")
+            if warmup_epoch is not None and model_type == "aae_mlp":
+                run_parts.append(f"warm{warmup_epoch}")
+            if ramp_epoch is not None and model_type == "aae_mlp":
+                run_parts.append(f"ramp{ramp_epoch}")
             if scaler is not None:
                 run_parts.append(f"scaler{scaler}")
             if loss is not None and model_type in {"ae_mlp", "aae_mlp", "ae_conv1d"}:
@@ -121,6 +134,8 @@ def main() -> None:
                 "window_length": cfg.get("windowing", {}).get("window_length"),
                 "latent_dim": cfg.get("model", {}).get("latent_dim"),
                 "lambda_adv": cfg.get("model", {}).get("lambda_adv"),
+                "warmup_epochs": cfg.get("training", {}).get("warmup_epochs"),
+                "ramp_epochs": cfg.get("training", {}).get("ramp_epochs"),
                 "scaler": cfg.get("preprocessing", {}).get("scaler"),
                 "loss": cfg.get("training", {}).get("loss"),
                 "threshold_method": cfg.get("evaluation", {}).get("threshold"),

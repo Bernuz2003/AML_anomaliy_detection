@@ -95,6 +95,9 @@ combined reconstruction + latent Mahalanobis
 The best AAE diagnostic run is selected using validation PR-AUC, not test PR-AUC.
 The test set is used only for final reporting.
 
+In this repository `huber` means PyTorch `SmoothL1Loss` with the default
+`beta=1.0`.
+
 Generated AAE diagnostic artifacts include:
 
 ```text
@@ -138,6 +141,19 @@ For optional multi-seed stability, open:
 
 ```text
 notebooks/AM01_appendix_extended_ablation_colab.ipynb
+```
+
+For the targeted warm-up experiment, open:
+
+```text
+notebooks/AM01_aae_warmup_smoothl1_experiment_colab.ipynb
+```
+
+This notebook tests the most promising untested direction: AAE with Smooth L1,
+reconstruction-only warm-up and a linear adversarial ramp. Outputs are isolated in:
+
+```text
+MyDrive/AM01/results/official/warmup_aae_smoothl1/
 ```
 
 ## Expected Final Interpretation

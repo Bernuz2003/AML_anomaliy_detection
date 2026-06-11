@@ -20,6 +20,13 @@ class TrainingHistory:
     val_loss: list[float] = field(default_factory=list)
     discriminator_loss: list[float] = field(default_factory=list)
     adversarial_loss: list[float] = field(default_factory=list)
+    effective_lambda_adv: list[float] = field(default_factory=list)
+    discriminator_accuracy_real: list[float] = field(default_factory=list)
+    discriminator_accuracy_fake: list[float] = field(default_factory=list)
+    mean_d_z_real: list[float] = field(default_factory=list)
+    mean_d_z_fake: list[float] = field(default_factory=list)
+    latent_mean_norm: list[float] = field(default_factory=list)
+    latent_covariance_error: list[float] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, list[float]]:
         return {
@@ -27,6 +34,13 @@ class TrainingHistory:
             "val_loss": self.val_loss,
             "discriminator_loss": self.discriminator_loss,
             "adversarial_loss": self.adversarial_loss,
+            "effective_lambda_adv": self.effective_lambda_adv,
+            "discriminator_accuracy_real": self.discriminator_accuracy_real,
+            "discriminator_accuracy_fake": self.discriminator_accuracy_fake,
+            "mean_d_z_real": self.mean_d_z_real,
+            "mean_d_z_fake": self.mean_d_z_fake,
+            "latent_mean_norm": self.latent_mean_norm,
+            "latent_covariance_error": self.latent_covariance_error,
         }
 
 
@@ -128,6 +142,9 @@ def train_adversarial_autoencoder(
     weight_decay: float = 1e-5,
     loss_name: str = "mse",
     lambda_adv: float = 0.1,
+    warmup_epochs: int = 0,
+    ramp_epochs: int = 0,
+    early_stopping_start: int | None = None,
     patience: int = 10,
     show_progress: bool = True,
 ) -> TrainingHistory:
@@ -139,6 +156,14 @@ def train_adversarial_autoencoder(
     """
     if not hasattr(autoencoder, "encode") or not hasattr(autoencoder, "decode"):
         raise TypeError("AAE training requires an autoencoder exposing encode() and decode().")
+
+    if warmup_epochs < 0:
+        raise ValueError("warmup_epochs must be non-negative.")
+    if ramp_epochs < 0:
+        raise ValueError("ramp_epochs must be non-negative.")
+    if early_stopping_start is None:
+        early_stopping_start = warmup_epochs + ramp_epochs
+    early_stopping_start = max(0, int(early_stopping_start))
 
     autoencoder.to(device)
     discriminator.to(device)
@@ -154,17 +179,33 @@ def train_adversarial_autoencoder(
     best_disc_state = deepcopy(discriminator.state_dict())
     best_val = float("inf")
     bad_epochs = 0
+    checkpoint_started = False
 
     iterator: Iterable[int] = range(epochs)
     if show_progress:
         iterator = tqdm(iterator, desc="train AAE", leave=False)
 
+    def lambda_for_epoch(epoch_index: int) -> float:
+        if epoch_index < warmup_epochs:
+            return 0.0
+        if ramp_epochs > 0 and epoch_index < warmup_epochs + ramp_epochs:
+            return float(lambda_adv) * float(epoch_index - warmup_epochs + 1) / float(ramp_epochs)
+        return float(lambda_adv)
+
     for epoch in iterator:
         autoencoder.train()
         discriminator.train()
+        effective_lambda = lambda_for_epoch(epoch)
+        adversarial_active = effective_lambda > 0.0
         rec_losses: list[float] = []
         disc_losses: list[float] = []
         adv_losses: list[float] = []
+        acc_real_values: list[float] = []
+        acc_fake_values: list[float] = []
+        mean_d_real_values: list[float] = []
+        mean_d_fake_values: list[float] = []
+        latent_mean_norm_values: list[float] = []
+        latent_cov_error_values: list[float] = []
 
         for batch in train_loader:
             x = _batch_x(batch).to(device)
@@ -179,9 +220,19 @@ def train_adversarial_autoencoder(
             opt_rec.step()
             rec_losses.append(float(loss_rec.item()))
 
-            # 2) Discriminator phase: distinguish prior samples from encoded samples.
             with torch.no_grad():
                 z_fake = autoencoder.encode(x)
+                latent_mean_norm_values.append(float(z_fake.mean(dim=0).norm().item()))
+                if z_fake.shape[0] > 1:
+                    centered = z_fake - z_fake.mean(dim=0, keepdim=True)
+                    cov = centered.T @ centered / max(z_fake.shape[0] - 1, 1)
+                    eye = torch.eye(cov.shape[0], device=device)
+                    latent_cov_error_values.append(float(torch.linalg.matrix_norm(cov - eye).item()))
+
+            if not adversarial_active:
+                continue
+
+            # 2) Discriminator phase: distinguish prior samples from encoded samples.
             z_real = sample_standard_normal(batch_size, latent_dim, device=device)
             logits_real = discriminator(z_real)
             logits_fake = discriminator(z_fake.detach())
@@ -193,13 +244,20 @@ def train_adversarial_autoencoder(
             torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=5.0)
             opt_disc.step()
             disc_losses.append(float(loss_disc.item()))
+            with torch.no_grad():
+                prob_real = torch.sigmoid(logits_real)
+                prob_fake = torch.sigmoid(logits_fake)
+                acc_real_values.append(float((prob_real >= 0.5).float().mean().item()))
+                acc_fake_values.append(float((prob_fake < 0.5).float().mean().item()))
+                mean_d_real_values.append(float(prob_real.mean().item()))
+                mean_d_fake_values.append(float(prob_fake.mean().item()))
 
             # 3) Adversarial encoder phase: make encoded samples look like prior samples.
             z_fake = autoencoder.encode(x)
             logits_fake_for_encoder = discriminator(z_fake)
             loss_adv = criterion_bce(logits_fake_for_encoder, torch.ones_like(logits_fake_for_encoder))
             opt_adv.zero_grad(set_to_none=True)
-            (lambda_adv * loss_adv).backward()
+            (effective_lambda * loss_adv).backward()
             torch.nn.utils.clip_grad_norm_(autoencoder.encoder.parameters(), max_norm=5.0)
             opt_adv.step()
             adv_losses.append(float(loss_adv.item()))
@@ -212,6 +270,13 @@ def train_adversarial_autoencoder(
         history.val_loss.append(val_loss)
         history.discriminator_loss.append(float(np.mean(disc_losses)) if disc_losses else float("nan"))
         history.adversarial_loss.append(float(np.mean(adv_losses)) if adv_losses else float("nan"))
+        history.effective_lambda_adv.append(float(effective_lambda))
+        history.discriminator_accuracy_real.append(float(np.mean(acc_real_values)) if acc_real_values else float("nan"))
+        history.discriminator_accuracy_fake.append(float(np.mean(acc_fake_values)) if acc_fake_values else float("nan"))
+        history.mean_d_z_real.append(float(np.mean(mean_d_real_values)) if mean_d_real_values else float("nan"))
+        history.mean_d_z_fake.append(float(np.mean(mean_d_fake_values)) if mean_d_fake_values else float("nan"))
+        history.latent_mean_norm.append(float(np.mean(latent_mean_norm_values)) if latent_mean_norm_values else float("nan"))
+        history.latent_covariance_error.append(float(np.mean(latent_cov_error_values)) if latent_cov_error_values else float("nan"))
 
         if show_progress and hasattr(iterator, "set_postfix"):
             iterator.set_postfix({
@@ -219,14 +284,21 @@ def train_adversarial_autoencoder(
                 "val": val_loss,
                 "disc": history.discriminator_loss[-1],
                 "adv": history.adversarial_loss[-1],
+                "lambda": effective_lambda,
             })
 
-        if val_loss < best_val - 1e-8:
+        checkpoint_allowed = epoch + 1 >= max(1, early_stopping_start)
+        if checkpoint_allowed and not checkpoint_started:
+            best_val = float("inf")
+            bad_epochs = 0
+            checkpoint_started = True
+
+        if checkpoint_allowed and val_loss < best_val - 1e-8:
             best_val = val_loss
             best_state = deepcopy(autoencoder.state_dict())
             best_disc_state = deepcopy(discriminator.state_dict())
             bad_epochs = 0
-        else:
+        elif checkpoint_allowed:
             bad_epochs += 1
             if bad_epochs >= patience:
                 break

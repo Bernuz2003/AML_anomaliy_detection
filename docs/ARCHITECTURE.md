@@ -78,7 +78,8 @@ without retraining completed experiments.
 ```text
 notebooks/
 ├── AM01_official_experiments_colab.ipynb
-└── AM01_appendix_extended_ablation_colab.ipynb
+├── AM01_appendix_extended_ablation_colab.ipynb
+└── AM01_aae_warmup_smoothl1_experiment_colab.ipynb
 ```
 
 The official notebook is the primary project entry point. It produces the main
@@ -86,6 +87,9 @@ results, essential ablations, AAE diagnostics and report-ready figures.
 
 The appendix notebook is optional. It is reserved for supporting analyses such as
 multi-seed stability and artifact inspection.
+
+The warm-up notebook is optional and targeted: it tests whether AAE improves when
+Smooth L1 reconstruction is stabilized before the adversarial objective starts.
 
 ## Output Layout
 

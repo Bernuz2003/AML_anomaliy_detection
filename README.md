@@ -20,6 +20,12 @@ Optional appendix:
 notebooks/AM01_appendix_extended_ablation_colab.ipynb
 ```
 
+Optional targeted AAE warm-up experiment:
+
+```text
+notebooks/AM01_aae_warmup_smoothl1_experiment_colab.ipynb
+```
+
 Expected input on Google Drive:
 
 ```text
@@ -39,6 +45,12 @@ MyDrive/AM01/results/official/
 ├── extended_scores/
 ├── runs/
 └── summary.md
+```
+
+The warm-up experiment writes to:
+
+```text
+MyDrive/AM01/results/official/warmup_aae_smoothl1/
 ```
 
 ## Repository Structure

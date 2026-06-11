@@ -322,6 +322,13 @@ def run_experiment(config: dict[str, Any], *, data_path: str | Path, output_dir:
                 weight_decay=float(train_cfg.get("weight_decay", 1e-5)),
                 loss_name=train_cfg.get("loss", "mse"),
                 lambda_adv=float(model_cfg.get("lambda_adv", 0.1)),
+                warmup_epochs=int(train_cfg.get("warmup_epochs", model_cfg.get("warmup_epochs", 0))),
+                ramp_epochs=int(train_cfg.get("ramp_epochs", model_cfg.get("ramp_epochs", 0))),
+                early_stopping_start=(
+                    int(train_cfg["early_stopping_start"])
+                    if "early_stopping_start" in train_cfg
+                    else None
+                ),
                 patience=int(train_cfg.get("patience", 10)),
                 show_progress=bool(train_cfg.get("show_progress", True)),
             )
