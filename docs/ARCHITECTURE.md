@@ -4,7 +4,7 @@ This repository implements the AM01 Kuka anomaly-detection pipeline used for the
 Advanced Machine Learning in Applications project.
 
 The codebase is intentionally small: reusable logic lives in `src/am01`, command
-line entry points live in `scripts`, and Colab execution is handled by two notebooks.
+line entry points live in `scripts`, and Colab execution is handled by three notebooks.
 
 ## Data Flow
 
