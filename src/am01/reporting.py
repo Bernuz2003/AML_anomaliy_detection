@@ -26,6 +26,7 @@ from am01.data.windowing import make_windows, split_by_run
 from am01.evaluation.metrics import all_metrics, select_threshold
 from am01.models.aae import LatentDiscriminator
 from am01.pipeline import build_autoencoder
+from am01.training.losses import per_window_reconstruction_error
 
 
 MODEL_LABELS = {
@@ -631,17 +632,27 @@ def aae_diagnostics_artifacts(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ae_cfg, ae_model, _ = _load_autoencoder_run(Path(ae_run_dir), device=device)
     aae_cfg, aae_model, aae_disc = _load_autoencoder_run(Path(aae_run_dir), device=device, require_discriminator=True)
-    ae_val = _forward_split(Path(ae_run_dir), ae_model, None, "val", device=device, batch_size=batch_size)
-    ae_test = _forward_split(Path(ae_run_dir), ae_model, None, "test", device=device, batch_size=batch_size)
-    aae_train = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "train", device=device, batch_size=batch_size)
-    aae_val = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "val", device=device, batch_size=batch_size)
-    aae_test = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "test", device=device, batch_size=batch_size)
+    ae_loss = ae_cfg.get("training", {}).get("loss", "mse")
+    aae_loss = aae_cfg.get("training", {}).get("loss", "mse")
+    ae_val = _forward_split(Path(ae_run_dir), ae_model, None, "val", device=device, batch_size=batch_size, error_mode=ae_loss)
+    ae_test = _forward_split(Path(ae_run_dir), ae_model, None, "test", device=device, batch_size=batch_size, error_mode=ae_loss)
+    aae_train = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "train", device=device, batch_size=batch_size, error_mode=aae_loss)
+    aae_val = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "val", device=device, batch_size=batch_size, error_mode=aae_loss)
+    aae_test = _forward_split(Path(aae_run_dir), aae_model, aae_disc, "test", device=device, batch_size=batch_size, error_mode=aae_loss)
 
     mahal = LedoitWolf().fit(aae_train["z"][aae_train["y"] == 0] if aae_train["y"] is not None else aae_train["z"])
     val_scores, norm_params = _build_aae_score_frame(aae_val, "val", mahal)
     test_scores, _ = _build_aae_score_frame(aae_test, "test", mahal, norm_params)
     val_scores.to_csv(extended_dir / "aae_extended_scores_val.csv", index=False)
     test_scores.to_csv(extended_dir / "aae_extended_scores_test.csv", index=False)
+    diagnostics_validation = _validate_reconstruction_score_consistency(
+        ae_run_dir=Path(ae_run_dir),
+        aae_run_dir=Path(aae_run_dir),
+        ae_loss=ae_loss,
+        aae_loss=aae_loss,
+        aae_test_scores=test_scores,
+        output_path=tables_dir / "aae_diagnostics_validation.json",
+    )
 
     score_cols = [
         "score_rec",
@@ -687,6 +698,7 @@ def aae_diagnostics_artifacts(
         "aae_config": aae_cfg,
         "score_table": score_table,
         "best_score": best_score,
+        "diagnostics_validation": diagnostics_validation,
         "latent_frame": latent_frame,
         "per_feature": per_feature,
         "per_action": per_action,
@@ -742,17 +754,18 @@ def _forward_split(
     *,
     device: torch.device,
     batch_size: int,
+    error_mode: str = "mse",
 ) -> dict[str, Any]:
     X, y, run_ids, starts, feature_cols = _load_npz(run_dir, split)
     tensor = torch.from_numpy(X).float()
-    rec_scores, feature_mse, z_batches, disc_batches = [], [], [], []
+    rec_scores, feature_errors, z_batches, disc_batches = [], [], [], []
     for start in range(0, len(tensor), batch_size):
         x = tensor[start:start + batch_size].to(device)
         z = model.encode(x)
         x_hat = model.decode(z)
-        err = (x - x_hat) ** 2
-        rec_scores.append(err.flatten(start_dim=1).mean(dim=1).cpu().numpy())
-        feature_mse.append(err.mean(dim=1).cpu().numpy())
+        err = _pointwise_reconstruction_error(x, x_hat, mode=error_mode)
+        rec_scores.append(per_window_reconstruction_error(x, x_hat, mode=error_mode).cpu().numpy())
+        feature_errors.append(err.mean(dim=1).cpu().numpy())
         z_batches.append(z.cpu().numpy())
         if discriminator is not None:
             disc_batches.append(torch.sigmoid(discriminator(z)).cpu().numpy())
@@ -763,12 +776,62 @@ def _forward_split(
         "starts": starts,
         "feature_cols": feature_cols,
         "score_rec": np.concatenate(rec_scores),
-        "feature_mse": np.concatenate(feature_mse, axis=0),
+        "feature_error": np.concatenate(feature_errors, axis=0),
+        "error_mode": error_mode,
         "z": np.concatenate(z_batches, axis=0),
     }
     if disc_batches:
         out["disc_prob_prior"] = np.concatenate(disc_batches)
     return out
+
+
+def _pointwise_reconstruction_error(x: torch.Tensor, x_hat: torch.Tensor, *, mode: str) -> torch.Tensor:
+    if mode == "mse":
+        return (x - x_hat) ** 2
+    if mode == "mae":
+        return torch.abs(x - x_hat)
+    if mode == "huber":
+        return torch.nn.functional.smooth_l1_loss(x_hat, x, reduction="none")
+    raise ValueError(f"Unknown reconstruction error mode: {mode}")
+
+
+def _validate_reconstruction_score_consistency(
+    *,
+    ae_run_dir: Path,
+    aae_run_dir: Path,
+    ae_loss: str,
+    aae_loss: str,
+    aae_test_scores: pd.DataFrame,
+    output_path: Path,
+    tolerance: float = 1e-4,
+) -> dict[str, Any]:
+    stored_metrics = read_json(aae_run_dir / "metrics.json")
+    stored_pr_auc = float(stored_metrics["test_metrics"]["pr_auc"])
+    y = aae_test_scores["label"].to_numpy().astype(int)
+    recomputed_pr_auc = float(average_precision_score(y, aae_test_scores["score_rec"].to_numpy()))
+    delta = abs(stored_pr_auc - recomputed_pr_auc)
+    check_passed = bool(delta <= tolerance)
+    payload = {
+        "ae_run": str(ae_run_dir),
+        "aae_run": str(aae_run_dir),
+        "ae_loss": ae_loss,
+        "aae_loss": aae_loss,
+        "stored_aae_test_pr_auc": stored_pr_auc,
+        "recomputed_aae_test_pr_auc": recomputed_pr_auc,
+        "absolute_delta": delta,
+        "tolerance": tolerance,
+        "check_passed": check_passed,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    if not check_passed:
+        raise ValueError(
+            "AAE diagnostics reconstruction score is inconsistent with stored run metrics. "
+            f"Stored test PR-AUC={stored_pr_auc:.6f}, recomputed={recomputed_pr_auc:.6f}, "
+            f"delta={delta:.6g}. Validation written to {output_path}."
+        )
+    return payload
 
 
 def _norm_params(values: np.ndarray) -> tuple[float, float]:
@@ -924,11 +987,18 @@ def _feature_reconstruction_artifacts(ae_test: dict[str, Any], aae_test: dict[st
 
 def _feature_summary(diag: dict[str, Any], label: str) -> pd.DataFrame:
     y = diag["y"].astype(int)
+    feature_error = diag["feature_error"]
     rows = []
     for idx, feature in enumerate(diag["feature_cols"]):
-        normal_error = float(diag["feature_mse"][y == 0, idx].mean()) if (y == 0).any() else np.nan
-        anomaly_error = float(diag["feature_mse"][y == 1, idx].mean()) if (y == 1).any() else np.nan
-        rows.append({"feature": feature, f"normal_error_{label.lower()}": normal_error, f"anomaly_error_{label.lower()}": anomaly_error, "separation": anomaly_error - normal_error})
+        normal_error = float(feature_error[y == 0, idx].mean()) if (y == 0).any() else np.nan
+        anomaly_error = float(feature_error[y == 1, idx].mean()) if (y == 1).any() else np.nan
+        rows.append({
+            "feature": feature,
+            "error_mode": diag.get("error_mode", "mse"),
+            f"{label.lower()}_normal_error": normal_error,
+            f"{label.lower()}_anomaly_error": anomaly_error,
+            "separation": anomaly_error - normal_error,
+        })
     return pd.DataFrame(rows)
 
 
